@@ -1,0 +1,24 @@
+[project]
+name = "tsclib"
+version = "0.1.0"
+description = "Python lib for tsclib"
+authors = [{ name = "Anderson", email = "andersonby@163.com" }]
+dependencies = ["pythonnet>=3.0.5"]
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.build]
+excludes = ["tests"]
+
+[tool.pdm.scripts]
+test.cmd = "python"
+test.env = { PYTHONPATH = "." }
