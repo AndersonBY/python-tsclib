@@ -1,8 +1,13 @@
+import os
 import sys
 import time
 import types
 import logging
 from pathlib import Path
+
+# Setup basic logging
+log_level = os.getenv("TSCLIB_LOG_LEVEL", "INFO")
+logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- Configuration ---
 # Attempt to load pythonnet
@@ -11,23 +16,20 @@ try:
     from pythonnet import load
 
     # 加载.NET运行时
-    load("coreclr")
+    load()
 
     # 导入clr模块
     import clr
 
-    print("pythonnet loaded successfully.")
+    logging.debug("pythonnet loaded successfully.")
 except ImportError as e:
-    print(f"ERROR: pythonnet library not found: {e}")
-    print("Please install it: pip install pythonnet")
+    logging.error(f"ERROR: pythonnet library not found: {e}")
+    logging.error("Please install it: pip install pythonnet")
     sys.exit(1)
 except Exception as e:
-    print(f"ERROR: Failed to initialize pythonnet or CLR: {e}")
-    print("Ensure .NET Framework or .NET Core/5+ is installed and compatible.")
+    logging.error(f"ERROR: Failed to initialize pythonnet or CLR: {e}")
+    logging.error("Ensure .NET Framework or .NET Core/5+ is installed and compatible.")
     sys.exit(1)
-
-# Setup basic logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 # --- Custom Exception ---
@@ -102,7 +104,8 @@ class TSCPrinter:
         logging.info(f"Loading TSC DLL from: {self._dll_path}")
         try:
             # Add reference to the DLL (use name without extension)
-            clr.AddReference(self._dll_path.suffix)  # type: ignore
+            logging.debug(f"Adding reference to: {str(self._dll_path.resolve().with_suffix(''))}")
+            clr.AddReference(str(self._dll_path.resolve().with_suffix("")))  # type: ignore
 
             # Import the namespace
             import TSCSDK  # type: ignore
@@ -117,10 +120,13 @@ class TSCPrinter:
             logging.info("tsclibnet.dll loaded and TSCSDK.node_usb instance created successfully.")
 
             # Optional: List available methods for debugging
-            # logging.debug("Available methods in tsc_instance:")
-            # for method_name in dir(self._tsc_instance):
-            #     if not method_name.startswith("_"):
-            #         logging.debug(f"- {method_name}")
+            logging.debug("Available methods in tsc_instance:")
+            for method_name in dir(self._tsc_instance):
+                if not method_name.startswith("_"):
+                    logging.debug(f"- {method_name}")
+
+            result = self._tsc_instance.about("")
+            logging.info(f"about result: {result.Result}")
 
         except ImportError:
             logging.error(f"Failed to import TSCSDK namespace from '{self._dll_path.name}'.")
@@ -505,8 +511,8 @@ if __name__ == "__main__":
     try:
         printer = TSCPrinter()  # Uses default path finding
 
-        logging.info("--- Getting DLL Info ---")
-        print(f"DLL About Info: {printer.get_about_info()}")
+        # logging.info("--- Getting DLL Info ---")
+        # print(f"DLL About Info: {printer.get_about_info()}")
 
         logging.info("\n--- Running Print Job via Context Manager ---")
         with printer:  # Automatically opens and closes the port
