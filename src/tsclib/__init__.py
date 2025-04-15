@@ -124,10 +124,6 @@ class TSCPrinter:
             for method_name in dir(self._tsc_instance):
                 if not method_name.startswith("_"):
                     logging.debug(f"- {method_name}")
-
-            result = self._tsc_instance.about("")
-            logging.info(f"about result: {result.Result}")
-
         except ImportError:
             logging.error(f"Failed to import TSCSDK namespace from '{self._dll_path.name}'.")
             logging.error("Ensure the DLL is a valid .NET assembly and pythonnet is working.")
