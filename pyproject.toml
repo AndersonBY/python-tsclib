@@ -1,6 +1,6 @@
 [project]
 name = "tsclib"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python lib for tsclib"
 authors = [{ name = "Anderson", email = "andersonby@163.com" }]
 dependencies = ["pythonnet>=3.0.5"]
@@ -21,4 +21,4 @@ excludes = ["tests"]
 
 [tool.pdm.scripts]
 test.cmd = "python"
-test.env = { PYTHONPATH = "." }
+test.env = { PYTHONPATH = ".", TSCLIB_LOG_LEVEL = "DEBUG" }
