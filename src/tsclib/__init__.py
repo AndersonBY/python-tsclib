@@ -4,6 +4,7 @@ import time
 import types
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 # Setup basic logging
 log_level = os.getenv("TSCLIB_LOG_LEVEL", "INFO")
@@ -57,6 +58,26 @@ class Rotation:
     DEG_270 = "270"
 
 
+class PrinterDeviceInfo(TypedDict):
+    device_path: str
+    friendly_name: str
+    description: str
+    manufacturer: str
+    vid: str
+    pid: str
+    index: str
+    hardware_id: str
+    compatible_ids: str
+    device_class: str
+    class_guid: str
+    driver: str
+    service: str
+    location: str
+    physical_device_name: str
+    bus_number: str
+    enumerator_name: str
+
+
 # --- TSC Printer Class ---
 class TSCPrinter:
     """
@@ -101,7 +122,7 @@ class TSCPrinter:
         if not self._dll_path.exists():
             raise FileNotFoundError(f"TSC DLL not found at: {self._dll_path}")
 
-        logging.info(f"Loading TSC DLL from: {self._dll_path}")
+        logging.debug(f"Loading TSC DLL from: {self._dll_path}")
         try:
             # Add reference to the DLL (use name without extension)
             logging.debug(f"Adding reference to: {str(self._dll_path.resolve().with_suffix(''))}")
@@ -112,12 +133,12 @@ class TSCPrinter:
 
             TSCPrinter._TSCSDK = TSCSDK  # Store namespace at class level
 
-            # Create the node_usb instance (must be instance, not static class)
+            # Create the usb instance (must be instance, not static class)
             TSCPrinter._tsc_instance = self._TSCSDK.node_usb()  # type: ignore
             self._tsc_instance = TSCPrinter._tsc_instance  # Assign to instance variable too
             TSCPrinter._dll_path = self._dll_path  # Store path at class level
 
-            logging.info("tsclibnet.dll loaded and TSCSDK.node_usb instance created successfully.")
+            logging.debug("tsclibnet.dll loaded and TSCSDK.node_usb instance created successfully.")
 
             # Optional: List available methods for debugging
             logging.debug("Available methods in tsc_instance:")
@@ -130,10 +151,10 @@ class TSCPrinter:
             TSCPrinter._tsc_instance = None
             raise
         except AttributeError:
-            logging.error("Could not find 'node_usb' class within the TSCSDK namespace.")
+            logging.error("Could not find 'usb' class within the TSCSDK namespace.")
             logging.error("The DLL structure might be different than expected.")
             TSCPrinter._tsc_instance = None
-            raise RuntimeError("Failed to find node_usb class in TSCSDK.")
+            raise RuntimeError("Failed to find usb class in TSCSDK.")
         except Exception as e:
             logging.error(f"An unexpected error occurred during DLL loading: {e}")
             logging.error("Check .NET installation, DLL compatibility (32/64 bit), and pythonnet setup.")
@@ -182,13 +203,49 @@ class TSCPrinter:
 
     # --- Core Printer Operations ---
 
-    def open_port(self, port_name: str = "") -> object:
+    def list_printers(self) -> list[PrinterDeviceInfo]:
+        """
+        Enumerates connected TSC USB printers (VID 0x1203).
+
+        Returns:
+            A list of printer model names found. The index in this list
+            can be used with open_port_by_index. Returns empty list on failure.
+        """
+        printer_list_net = self._execute_command("listprinters")
+        available_printers = []
+        if printer_list_net and printer_list_net.Count > 0:
+            for i in range(printer_list_net.Count):
+                net_device_info = printer_list_net[i]
+                py_device_info = {
+                    "device_path": net_device_info["DevicePath"],
+                    "friendly_name": net_device_info["FriendlyName"],
+                    "description": net_device_info["DeviceDesc"],
+                    "manufacturer": net_device_info["Manufacturer"],
+                    "vid": net_device_info["VID"],
+                    "pid": net_device_info["PID"],
+                    "index": net_device_info["Index"],
+                    "hardware_id": net_device_info["HardwareID"],
+                    "compatible_ids": net_device_info["CompatibleIDs"],
+                    "device_class": net_device_info["Class"],
+                    "class_guid": net_device_info["ClassGuid"],
+                    "driver": net_device_info["Driver"],
+                    "service": net_device_info["Service"],
+                    "location": net_device_info["Location"],
+                    "physical_device_name": net_device_info["PhysicalDeviceName"],
+                    "bus_number": net_device_info["BusNumber"],
+                    "enumerator_name": net_device_info["EnumeratorName"],
+                }
+                available_printers.append(py_device_info)
+
+        return available_printers
+
+    def open_port(self, port_index: int = 0) -> bool:
         """
         Opens the communication port to the printer.
 
         Args:
-            port_name: The name of the port.
-                       - For USB, typically "" (empty string) lets the driver find it.
+            port_index: The index of the port.
+                       - For USB, typically 0 (default) lets the driver find it.
                        - Can also be driver name (e.g., "TSC TTP-247") or LPT port ("LPT1").
                        Refer to tsclib documentation for specifics.
 
@@ -196,10 +253,9 @@ class TSCPrinter:
             The result from the DLL's openport method. Success often indicated by
             lack of exceptions rather than a specific return value.
         """
-        logging.info(f"Opening printer port '{port_name if port_name else 'USB (default)'}'...")
-        # Pass object (empty string works based on user code for USB)
-        result = self._execute_command("openport", port_name)
-        logging.info(f"openport result: {result}")
+        logging.debug(f"Opening printer port '{port_index if port_index else 'USB (default)'}'...")
+        result = self._execute_command("openport", port_index)
+        logging.debug(f"openport result: {result}")
         # Add a small delay after opening port, sometimes helpful
         time.sleep(0.1)
         return result
@@ -211,10 +267,10 @@ class TSCPrinter:
         Returns:
             The result from the DLL's closeport method.
         """
-        logging.info("Closing printer port...")
+        logging.debug("Closing printer port...")
         # Pass object (empty string works based on user code)
         result = self._execute_command("closeport", "")
-        logging.info(f"closeport result: {result}")
+        logging.debug(f"closeport result: {result}")
         return result
 
     def get_status(self, delay_ms: int = 100) -> str:
@@ -228,10 +284,10 @@ class TSCPrinter:
             A string representing the printer status (e.g., "00" for ready).
             Refer to TSPL manual for status code meanings.
         """
-        logging.info("Querying printer status...")
+        logging.debug("Querying printer status...")
         result = self._execute_command("printerstatus_string", delay_ms)
         status = str(result)  # Ensure it's a string
-        logging.info(f"Printer status code: {status}")
+        logging.debug(f"Printer status code: {status}")
         return status
 
     def get_about_info(self) -> str:
@@ -241,11 +297,11 @@ class TSCPrinter:
         Returns:
             A string containing the about information.
         """
-        logging.info("Querying DLL about info...")
+        logging.debug("Querying DLL about info...")
         # Pass object (empty string works based on user code)
         result = self._execute_command("about", "")
         about_info = str(result)
-        logging.info(f"DLL About info: {about_info}")
+        logging.debug(f"DLL About info: {about_info}")
         return about_info
 
     def setup_label(
@@ -266,7 +322,7 @@ class TSCPrinter:
         Returns:
             The result from the DLL's setup method.
         """
-        logging.info(
+        logging.debug(
             f"Setting up label: {width_mm}x{height_mm}mm, Speed:{speed}, Density:{density}, Sensor:{sensor_type}"
         )
         setup_params = types.SimpleNamespace(
@@ -291,10 +347,10 @@ class TSCPrinter:
         Returns:
             The result from the DLL's clearbuffer method.
         """
-        logging.info("Clearing printer buffer...")
+        logging.debug("Clearing printer buffer...")
         # Pass object (empty string works based on user code)
         result = self._execute_command("clearbuffer", "")
-        logging.info(f"clearbuffer result: {result}")
+        logging.debug(f"clearbuffer result: {result}")
         return result
 
     def print_label(self, quantity: str = "1", copies: str = "1") -> object:
@@ -308,13 +364,13 @@ class TSCPrinter:
         Returns:
             The result from the DLL's printlabel method.
         """
-        logging.info(f"Sending print command: Quantity={quantity}, Copies={copies}")
+        logging.debug(f"Sending print command: Quantity={quantity}, Copies={copies}")
         print_params = types.SimpleNamespace(
             quantity=quantity,
             copy=copies,  # Matches user's working code parameter name
         )
         result = self._execute_command("printlabel", print_params)
-        logging.info(f"printlabel result: {result}")
+        logging.debug(f"printlabel result: {result}")
         return result
 
     # --- Sending Raw Commands ---
@@ -370,7 +426,7 @@ class TSCPrinter:
         Returns:
             The result from the DLL's printerfont method.
         """
-        logging.info(f"Printing internal font text at ({x},{y}): {text}")
+        logging.debug(f"Printing internal font text at ({x},{y}): {text}")
         font_params = types.SimpleNamespace(
             x=x,
             y=y,
@@ -413,7 +469,7 @@ class TSCPrinter:
         Returns:
             The result from the DLL's barcode method.
         """
-        logging.info(f"Printing barcode at ({x},{y}): Type={barcode_type}, Code={code}")
+        logging.debug(f"Printing barcode at ({x},{y}): Type={barcode_type}, Code={code}")
         barcode_params = types.SimpleNamespace(
             x=x,
             y=y,
@@ -457,7 +513,7 @@ class TSCPrinter:
         Returns:
             The result from the DLL's windowsfont method.
         """
-        logging.info(f"Printing Windows font '{font_face_name}' at ({x},{y}): {text}")
+        logging.debug(f"Printing Windows font '{font_face_name}' at ({x},{y}): {text}")
         windowsfont_params = types.SimpleNamespace(
             x=x,
             y=y,
@@ -497,7 +553,7 @@ class TSCPrinter:
 # --- Example Usage ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)  # More verbose logging for testing
-    logging.info("--- TSC Printer Module Test ---")
+    logging.debug("--- TSC Printer Module Test ---")
 
     # Assumes tsclibnet.dll is in the same directory as this script
     # If it's elsewhere, provide the full path:
@@ -507,12 +563,12 @@ if __name__ == "__main__":
     try:
         printer = TSCPrinter()  # Uses default path finding
 
-        # logging.info("--- Getting DLL Info ---")
+        # logging.debug("--- Getting DLL Info ---")
         # print(f"DLL About Info: {printer.get_about_info()}")
 
-        logging.info("\n--- Running Print Job via Context Manager ---")
+        logging.debug("\n--- Running Print Job via Context Manager ---")
         with printer:  # Automatically opens and closes the port
-            logging.info("Port opened via context manager.")
+            logging.debug("Port opened via context manager.")
 
             status = printer.get_status()
             print(f"Initial Printer Status: {status}")
@@ -594,11 +650,11 @@ if __name__ == "__main__":
             # 4. Execute the print command
             printer.print_label(quantity="1", copies="1")
 
-            logging.info("Print job sent to the printer.")
+            logging.debug("Print job sent to the printer.")
 
         # The 'with' block automatically calls printer.close_port() here,
         # even if errors occurred inside the block.
-        logging.info("Port closed via context manager.")
+        logging.debug("Port closed via context manager.")
 
     except FileNotFoundError as e:
         logging.error(f"Initialization failed: {e}")
@@ -614,7 +670,7 @@ if __name__ == "__main__":
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)  # Log traceback
         print(f"An unexpected error happened: {e}")
 
-    logging.info("\n--- TSC Printer Module Test Finished ---")
+    logging.debug("\n--- TSC Printer Module Test Finished ---")
 
 # Note: This script assumes the 'tsclibnet.dll' is present in the same directory
 # or provided via the `dll_path` argument.
